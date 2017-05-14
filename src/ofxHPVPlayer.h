@@ -28,6 +28,7 @@ public:
     void                play();
     void                stop();
     void                close();
+	void				update();
     
     /* 
      * NOT SUPPORTED

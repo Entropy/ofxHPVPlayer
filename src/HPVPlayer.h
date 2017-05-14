@@ -26,6 +26,8 @@
 #include "ThreadSafeQueue.h"
 #include "Timer.h"
 
+#include "ofThreadChannel.h"
+
 #define HPV_READ_PATH_ERROR         0x00
 #define HPV_READ_HEADER_ERROR       0x01
 #define HPV_READ_DIMENSION_ERROR    0x02
@@ -100,12 +102,11 @@ namespace HPV {
         uint64_t        getNumberOfFrames();
         std::string     getFilename();
         uint8_t         getID();
+
+		void			update();
         
         void            addHPVEventSink(ThreadSafe_Queue<HPVEvent> * sink);
-        void            notifyHPVEvent(HPVEventType type);
-        
-        void            launchUpdateThread();
-        void            update();
+		void            notifyHPVEvent(HPVEventType type);
         bool            hasNewFrame();
         void            resetPlayer();
         
@@ -132,6 +133,33 @@ namespace HPV {
         std::string     getFileSummary();
         
     private:
+		struct Frame{
+			Frame(size_t size, uint32_t number)
+				:_buffer(new unsigned char[size])
+				,_number(number){
+
+				if (!_buffer)
+				{
+					throw std::exception();
+				}
+			}
+			Frame(const Frame & frame) = delete;
+			Frame & operator=(const Frame & frame) = delete;
+			Frame(Frame && frame)
+				:_buffer(frame._buffer)
+				,_number(frame._number){
+				frame._buffer = nullptr;
+			}
+
+			~Frame(){
+				if(_buffer){
+					delete[] _buffer;
+				}
+			}
+
+			unsigned char* _buffer;
+			uint32_t _number;
+		};
 
        
         std::ifstream   _ifs;
@@ -142,35 +170,38 @@ namespace HPV {
         size_t          _filesize;
         uint32_t *      _frame_sizes_table;
         uint64_t *      _frame_offsets_table;
-        unsigned char*  _frame_buffer;
+		uint32_t		_frame_max_size;
+		std::vector<Frame>  _frames;
+		std::deque<Frame*>  _read_frames;
+		char *			_l4z_buffer;
         size_t          _bytes_per_frame;
         uint64_t        _new_frame_time;
         uint64_t        _global_time_per_frame;
         uint64_t        _local_time_per_frame;
         int64_t         _curr_frame;
-        int64_t         _curr_buffered_frame;
-        int64_t         _seeked_frame;
+		int64_t         _curr_buffered_frame;
         int64_t         _loop_in;
         int64_t         _loop_out;
         uint8_t         _loop_mode;
         int             _state;
         int             _direction;
-        bool            _is_init;
-        volatile bool   _should_update;
+		bool            _is_init;
         std::atomic<int> _update_result;
         std::atomic<int> _seek_result;
         std::atomic<bool> _was_seeked;
-        std::thread     _update_thread;
-        std::mutex      _mtx;
-        std::condition_variable _seeked_signal;
+		std::thread     _update_thread;
 
         HPVHeader       _header;
         
         void            populateFrameOffsets(uint32_t);
-        int             readCurrentFrame();
-        int             seekSync();
+		int             readFrame(Frame & frame);
         
-        ThreadSafe_Queue<HPVEvent> * _m_event_sink;
+		ThreadSafe_Queue<HPVEvent> * _m_event_sink;
+		ofThreadChannel<Frame*> _m_frame_channel;
+		ofThreadChannel<Frame*> _m_read_frame_channel;
+
+		void            launchUpdateThread();
+		void            thread_function();
     };
     
     typedef std::shared_ptr<HPV::HPVPlayer> HPVPlayerRef;

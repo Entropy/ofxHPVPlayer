@@ -209,8 +209,11 @@ namespace HPV {
         
         HPV_VERBOSE("HPV::Buffering...");
         
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, data->opengl.pboIds[BACK]);
-        glBufferData(GL_PIXEL_UNPACK_BUFFER, data->player->getBytesPerFrame(), data->player->getBufferPtr(), GL_STREAM_DRAW);
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, data->opengl.pboIds[BACK]);
+		auto buffer = data->player->getBufferPtr();
+		if(buffer){
+			glBufferData(GL_PIXEL_UNPACK_BUFFER, data->player->getBytesPerFrame(), buffer, GL_STREAM_DRAW);
+		}
         
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, data->opengl.pboIds[FRONT]);
         glBufferData(GL_PIXEL_UNPACK_BUFFER, data->player->getBytesPerFrame(), 0, GL_STREAM_DRAW);
@@ -256,8 +259,11 @@ namespace HPV {
         
         if (ptr)
         {
-            data->cpu_framenum = data->player->getCurrentFrameNumber();
-            memcpy(ptr, data->player->getBufferPtr(), data->player->getBytesPerFrame());
+            data->cpu_framenum = data->player->getCurrentFrameNumber();			
+			auto buffer = data->player->getBufferPtr();
+			if(buffer){
+				memcpy(ptr, buffer, data->player->getBytesPerFrame());
+			}
             glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
         }
         
@@ -271,7 +277,10 @@ namespace HPV {
             return;
         }
         
-        glCompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, data->player->getWidth(), data->player->getHeight(), data->opengl.gl_format, static_cast<GLsizei>(data->player->getBytesPerFrame()), data->player->getBufferPtr());
+		auto buffer = data->player->getBufferPtr();
+		if(buffer){
+			glCompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, data->player->getWidth(), data->player->getHeight(), data->opengl.gl_format, static_cast<GLsizei>(data->player->getBytesPerFrame()), buffer);
+		}
         
         data->cpu_framenum = data->player->getCurrentFrameNumber();
         data->gpu_framenum = data->cpu_framenum;

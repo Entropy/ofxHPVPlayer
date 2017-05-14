@@ -33,22 +33,19 @@ namespace HPV {
     , _num_bytes_in_sizes_table(0)
     , _filesize(0)
     , _frame_sizes_table(nullptr)
-    , _frame_offsets_table(nullptr)
-    , _frame_buffer(nullptr)
+	, _frame_offsets_table(nullptr)
     , _bytes_per_frame(0)
     , _new_frame_time(0)
     , _global_time_per_frame(0)
     , _local_time_per_frame(0)
     , _curr_frame(0)
-    , _curr_buffered_frame(0)
-    , _seeked_frame(0)
+	, _curr_buffered_frame(0)
     , _loop_in(0)
     , _loop_out(0)
     , _loop_mode(HPV_LOOPMODE_LOOP)
     , _state(HPV_STATE_NONE)
     , _direction(HPV_DIRECTION_FORWARDS)
-    , _is_init(false)
-    , _should_update(false)
+	, _is_init(false)
     , _m_event_sink(nullptr)
     {
         _update_result.store(0, std::memory_order_relaxed);
@@ -155,10 +152,16 @@ namespace HPV {
         _ifs.read((char *)_frame_sizes_table, _num_bytes_in_sizes_table);
         
         uint32_t crc = 0;
+		_frame_max_size = _frame_sizes_table[0];
         for (uint32_t i=0 ; i<_header.number_of_frames; ++i)
         {
             crc += _frame_sizes_table[i];
+			if(_frame_sizes_table[i]>_frame_max_size){
+				_frame_max_size = _frame_sizes_table[i];
+			}
         }
+		// create local buffer for storing L4Z compressed frame
+		_l4z_buffer = new (std::nothrow) char[ _frame_max_size ];
         
         if (crc != _header.crc_frame_sizes)
         {
@@ -186,22 +189,20 @@ namespace HPV {
         this->resetPlayer();
         
         // allocate the frame buffer, happens only once. We re-use the same memory space
-        _frame_buffer = new unsigned char[_bytes_per_frame];
+		for(int i=0;i<10;i++){
+			try{
+				_frames.emplace_back(_bytes_per_frame,i);
+			}catch(...){
+				HPV_ERROR("Failed to allocate the frame buffer.");
+				_ifs.close();
+				return HPV_RET_ERROR;
+			}
+		}
         
-        if (!_frame_buffer)
-        {
-            HPV_ERROR("Failed to allocate the frame buffer.");
-            _ifs.close();
-            return HPV_RET_ERROR;
-        }
-        
-        // read the first frame
-        if (!readCurrentFrame())
-        {
-            HPV_ERROR("Failed to read the first frame.");
-            _ifs.close();
-            return HPV_RET_ERROR;
-        }
+		// read the first frame
+		for(Frame & frame: _frames){
+			_m_frame_channel.send(&frame);
+		}
         
         this->launchUpdateThread();
         
@@ -218,7 +219,8 @@ namespace HPV {
         {
             // first let thread finish
             _update_result.store(0, std::memory_order_release);
-            _should_update = false;
+			_m_read_frame_channel.close();
+			_m_frame_channel.close();
             
             if (_update_thread.joinable())
             {
@@ -229,15 +231,16 @@ namespace HPV {
             HPV_VERBOSE("Closed HPV worker thread for '%s'", _file_name.c_str());
             
             if (_ifs.is_open())
+				_read_frames.push_back(&_frames[0]);
             {
                 _ifs.close();
-            }
-            
-            if (_frame_buffer)
-            {
-                delete [] _frame_buffer;
-                _frame_buffer = nullptr;
-            }
+			}
+
+			if (_l4z_buffer)
+			{
+				delete [] _l4z_buffer;
+				_l4z_buffer = nullptr;
+			}
             
             if (_frame_sizes_table)
             {
@@ -282,7 +285,7 @@ namespace HPV {
         }
     }
     
-    inline int HPVPlayer::readCurrentFrame()
+	inline int HPVPlayer::readFrame(Frame & frame)
     {
         static uint64_t _before_read, _before_decode;
         static uint64_t _after_read, _after_decode;
@@ -293,25 +296,23 @@ namespace HPV {
             _before_decode = _before_read;
         }
         
-        _ifs.seekg(_frame_offsets_table[_curr_frame]);
+		_ifs.seekg(_frame_offsets_table[frame._number]);
         
         if (!_ifs.good())
         {
-            HPV_ERROR("Failed to seek to %lu", _frame_offsets_table[_curr_frame]);
+			HPV_ERROR("Failed to seek to %lu", _frame_offsets_table[frame._number]);
             return HPV_RET_ERROR;
         }
-        
-        // create local buffer for storing L4Z compressed frame
-        char * _l4z_buffer = new (std::nothrow) char[ _frame_sizes_table[_curr_frame] ];
+
         
         if (!_l4z_buffer)
         {
-            HPV_ERROR("Couldn't create decompression buffer for frame %" PRId64, _curr_frame);
+			HPV_ERROR("Couldn't create decompression buffer for frame %" PRId64, frame._number);
             return HPV_RET_ERROR;
         }
-        
+
         // read L4Z data from disk into buffer
-        _ifs.read(_l4z_buffer, _frame_sizes_table[_curr_frame]);
+		_ifs.read(_l4z_buffer, _frame_sizes_table[frame._number]);
         
         if (!_ifs.good())
         {
@@ -328,7 +329,7 @@ namespace HPV {
         
         if (!_ifs.good())
         {
-            HPV_ERROR("Failed to read frame %" PRId64, _curr_frame);
+			HPV_ERROR("Failed to read frame %" PRId64, frame._number);
             return HPV_RET_ERROR;
         }
         
@@ -337,12 +338,12 @@ namespace HPV {
             _before_decode = ns();
         }
         
-        // decompress L4Z
-        int ret_decomp = LZ4_decompress_fast((const char *)_l4z_buffer, (char *)_frame_buffer, static_cast<int>(_bytes_per_frame));
+		// decompress L4Z
+		int ret_decomp = LZ4_decompress_fast((const char *)_l4z_buffer, (char *)frame._buffer, static_cast<int>(_bytes_per_frame));
         
         if (ret_decomp == 0)
         {
-            HPV_ERROR("Failed to decompress frame %" PRId64, _curr_frame);
+			HPV_ERROR("Failed to decompress frame %" PRId64, frame._number);
             return HPV_RET_ERROR;
         }
         
@@ -351,13 +352,11 @@ namespace HPV {
             _after_decode = ns();
             
             _decode_stats.l4z_decode_time = _after_decode - _before_decode;
-        }
-        
-        delete [] _l4z_buffer;
+		}
         
         _update_result.store(1, std::memory_order_relaxed);
         
-        _curr_buffered_frame = _curr_frame;
+		//_curr_buffered_frame = _curr_frame;
         
         //HPV_VERBOSE("ID %d read frame %" PRId64, getID(), _curr_buffered_frame);
         
@@ -366,9 +365,8 @@ namespace HPV {
     
     void HPVPlayer::launchUpdateThread()
     {
-        // start thread now that everything is set for this player
-        _should_update = true;
-        _update_thread = std::thread(&HPVPlayer::update, this);
+		// start thread now that everything is set for this player
+		_update_thread = std::thread(&HPVPlayer::thread_function, this);
     }
     
     int HPVPlayer::play()
@@ -519,127 +517,118 @@ namespace HPV {
      *  updateResult = 0    -> not yet there, still iterating
      *
      */
-    void HPVPlayer::update()
+	void HPVPlayer::thread_function()
     {
-        while (_should_update)
-        {
-            uint64_t now;
-            
-            if (_was_seeked.load())
-            {
-                 std::unique_lock<std::mutex> lock(_mtx);
-                
-                _curr_frame = _seeked_frame;
-                _was_seeked.store(false, std::memory_order_relaxed);
-                
-                /* Read the frame from the file */
-                if (!readCurrentFrame())
-                {
-                    _seek_result.store(-1, std::memory_order_relaxed);
-                }
-                else
-                {
-                    _seek_result.store(1, std::memory_order_relaxed);
-                }
-            
-                now = ns();
-    
-                lock.unlock();
-                _seeked_signal.notify_one();
-                
-                continue;
-            }
-            else
-            {
-                /* When not playing, paused or stopped: sleep a bit an re-check condition */
-                if (!isPlaying() || isPaused() || isStopped())
-                {
-                    std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+		uint64_t now;
+		Frame * frame;
+		while (_m_frame_channel.receive(frame))
+		{
+			_was_seeked.store(false, std::memory_order_relaxed);
 
-                    continue;
-                }
+			/* Read the frame from the file */
+			if (!readFrame(*frame))
+			{
+				_seek_result.store(-1, std::memory_order_relaxed);
+			}
+			else
+			{
+				_seek_result.store(1, std::memory_order_relaxed);
+				_m_read_frame_channel.send(frame);
+			}
+
+			now = ns();
+
+//            else
+//            {
+//                /* When not playing, paused or stopped: sleep a bit an re-check condition */
+//                if (!isPlaying() || isPaused() || isStopped())
+//                {
+//                    std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+
+//                    continue;
+//                }
                 
-                /* When playing: get delta time and check if we need to load next frame. */
-                now = ns();
+//                /* When playing: get delta time and check if we need to load next frame. */
+//                now = ns();
                 
-                if (!(now >= _new_frame_time))
-                {
-                    //HPV_VERBOSE("%" PRIu64 " - %" PRIu64, now, _new_frame_time);
-                    continue;
-                }
-                // next actions depening on playback direction: forwards / backwards
-                else if (HPV_DIRECTION_FORWARDS == _direction)
-                {
-                    ++_curr_frame;
+//                if (!(now >= _new_frame_time))
+//                {
+//					//HPV_VERBOSE("%" PRIu64 " - %" PRIu64, now, _new_frame_time);
+//                    continue;
+//                }
+//                // next actions depening on playback direction: forwards / backwards
+//                else if (HPV_DIRECTION_FORWARDS == _direction)
+//                {
+//                    ++_curr_frame;
                     
-                    if (_curr_frame > _loop_out)
-                    {
-                        notifyHPVEvent(HPVEventType::HPV_EVENT_LOOP);
-                        if (HPV_LOOPMODE_NONE == _loop_mode)
-                        {
-                            stop();
-                            continue;
-                        }
-                        else if (HPV_LOOPMODE_LOOP == _loop_mode)
-                        {
-                            _curr_frame = _loop_in;
+//                    if (_curr_frame > _loop_out)
+//                    {
+//                        notifyHPVEvent(HPVEventType::HPV_EVENT_LOOP);
+//                        if (HPV_LOOPMODE_NONE == _loop_mode)
+//                        {
+//                            stop();
+//                            continue;
+//                        }
+//                        else if (HPV_LOOPMODE_LOOP == _loop_mode)
+//                        {
+//                            _curr_frame = _loop_in;
                             
-                        }
-                        else if (HPV_LOOPMODE_PALINDROME == _loop_mode)
-                        {
-                            _curr_frame = _loop_out;
-                            _direction = HPV_DIRECTION_REVERSE;
-                        }
-                        else
-                        {
-                            HPV_ERROR("Unhandled play mode.");
-                            continue;
-                        }
-                    }
-                }
-                else
-                {
-                    --_curr_frame;
+//                        }
+//                        else if (HPV_LOOPMODE_PALINDROME == _loop_mode)
+//                        {
+//                            _curr_frame = _loop_out;
+//                            _direction = HPV_DIRECTION_REVERSE;
+//                        }
+//                        else
+//                        {
+//                            HPV_ERROR("Unhandled play mode.");
+//                            continue;
+//                        }
+//                    }
+//                }
+//                else
+//                {
+//                    --_curr_frame;
                     
-                    if (_curr_frame < _loop_in)
-                    {
-                        notifyHPVEvent(HPVEventType::HPV_EVENT_LOOP);
-                        if (HPV_LOOPMODE_NONE == _loop_mode)
-                        {
-                            stop();
-                            continue;
-                        }
-                        else if (HPV_LOOPMODE_LOOP == _loop_mode)
-                        {
-                            _curr_frame = _loop_out;
-                        }
-                        else if (HPV_LOOPMODE_PALINDROME == _loop_mode)
-                        {
-                            _curr_frame = _loop_in;
-                            _direction = HPV_DIRECTION_FORWARDS;
-                        }
-                        else
-                        {
-                            HPV_ERROR("Unhandled play mode.");
-                            continue;
-                        }
-                    }
-                }
+//                    if (_curr_frame < _loop_in)
+//                    {
+//                        notifyHPVEvent(HPVEventType::HPV_EVENT_LOOP);
+//                        if (HPV_LOOPMODE_NONE == _loop_mode)
+//                        {
+//                            stop();
+//                            continue;
+//                        }
+//                        else if (HPV_LOOPMODE_LOOP == _loop_mode)
+//                        {
+//                            _curr_frame = _loop_out;
+//                        }
+//                        else if (HPV_LOOPMODE_PALINDROME == _loop_mode)
+//                        {
+//                            _curr_frame = _loop_in;
+//                            _direction = HPV_DIRECTION_FORWARDS;
+//                        }
+//                        else
+//                        {
+//                            HPV_ERROR("Unhandled play mode.");
+//                            continue;
+//                        }
+//                    }
+//                }
                 
-                /* Set future time when new frame is needed */
-                //_new_frame_time = now + _local_time_per_frame;
-                _new_frame_time += _local_time_per_frame;
+//                /* Set future time when new frame is needed */
+//                //_new_frame_time = now + _local_time_per_frame;
+//                _new_frame_time += _local_time_per_frame;
                 
-                /* Read the frame from the file */
-                if (!readCurrentFrame())
-                {
-                    continue;
-                }
+//                /* Read the frame from the file */
+//                if (!readCurrentFrame())
+//                {
+//                    continue;
+//                }
                                 
-                // sleep thread and wake up in time for next frame, taking in account read time
-                std::this_thread::sleep_for(std::chrono::nanoseconds(_local_time_per_frame-(_decode_stats.hdd_read_time+_decode_stats.l4z_decode_time)-1000000));
-            }
-        }
+//                // sleep thread and wake up in time for next frame, taking in account read time
+//                std::this_thread::sleep_for(std::chrono::nanoseconds(_local_time_per_frame-(_decode_stats.hdd_read_time+_decode_stats.l4z_decode_time)-1000000));
+//            }
+		}
     }
     
     int HPVPlayer::setSpeed(double speed)
@@ -692,49 +681,100 @@ namespace HPV {
     {
         if (pos < 0.0 || pos > 1.0)
             return HPV_RET_ERROR;
-        
+
+		int64_t seek_to = 0;
         if (HPV::isNearlyEqual(pos, 0.0))
         {
-            _seeked_frame = 0;
+			seek_to = 0;
         }
         else if (HPV::isNearlyEqual(pos, 1.0))
         {
-            _seeked_frame = _header.number_of_frames-1;
+			seek_to = _header.number_of_frames-1;
         }
         else
         {
-            _seeked_frame = clamp<int64_t>(static_cast<int64_t>(std::floor( (_header.number_of_frames-1) * pos)), _loop_in, _loop_out);
+			seek_to = clamp<int64_t>(static_cast<int64_t>(std::floor( (_header.number_of_frames-1) * pos)), _loop_in, _loop_out);
         }
+
+
     
-        return this->seekSync();
+		return this->seek(seek_to);
     }
     
-    int HPVPlayer::seek(int64_t frame)
+	int HPVPlayer::seek(int64_t seek_to)
     {
-        if (frame < 0 || frame >= _header.number_of_frames)
+		if (seek_to < 0 || seek_to >= _header.number_of_frames)
             return HPV_RET_ERROR;
         
-        _seeked_frame = clamp<int64_t>(frame, _loop_in, _loop_out);
-        
-        return this->seekSync();
-    }
+		seek_to = clamp<int64_t>(seek_to, _loop_in, _loop_out);
+
+		Frame * frame;
+		while(_m_read_frame_channel.tryReceive(frame)){
+			_read_frames.push_back(frame);
+		}
+
+		auto it = std::find_if(_read_frames.begin(), _read_frames.end(), [&](Frame * frame){
+			return frame->_number == seek_to;
+		});
+		bool received = it!=_read_frames.end();
+
+		if(received){
+			_curr_frame = seek_to;
+		}else{
+			if(seek_to>_curr_frame+10 || (_curr_frame+10 < _loop_out && seek_to < _curr_frame)){
+				if(_read_frames.empty()){
+					_m_read_frame_channel.receive(frame);
+					_read_frames.push_back(frame);
+				}
+				int64_t frame_num = seek_to;
+				for(Frame * frame: _read_frames){
+					frame->_number = frame_num;
+					frame_num += 1;
+					_m_frame_channel.send(frame);
+				}
+			}
+			while(!received){
+				_m_read_frame_channel.receive(frame);
+				_read_frames.push_back(frame);
+				if(frame->_number==seek_to){
+					received = true;
+				}
+			}
+			_curr_frame = seek_to;
+		}
+		return true;
+	}
     
-    int HPVPlayer::seekSync()
-    {
-        _was_seeked.store(true, std::memory_order_relaxed);
-        _seek_result.store(0, std::memory_order_relaxed);
-        
-        std::unique_lock<std::mutex> lock(_mtx);
-        _seeked_signal.wait_for(lock, std::chrono::milliseconds(100), [this]{ return (_seek_result.load() != 0); });
-        
-        if (_seek_result.load() < 0)
-        {
-            return HPV_RET_ERROR;
-        }
-        
-        return HPV_RET_ERROR_NONE;
-    }
-    
+
+	void HPVPlayer::update(){
+		Frame * frame = nullptr;
+		while(_m_read_frame_channel.tryReceive(frame)){
+			_read_frames.push_back(frame);
+		}
+		if(_read_frames.empty()){
+			_m_read_frame_channel.receive(frame);
+			_read_frames.push_back(frame);
+		}else{
+			auto it = std::find_if(_read_frames.begin(), _read_frames.end(), [&](Frame * frame){
+				return frame->_number == _curr_frame;
+			});
+			if(it!=_read_frames.end()){
+				frame = *it;
+				_read_frames.erase(it);
+				frame->_number += 10;
+				if(frame->_number > _loop_out){
+					if(_loop_mode != HPV_LOOPMODE_NONE){
+						frame->_number %= (_loop_out+1 - _loop_in);
+						frame->_number += _loop_in;
+					}
+				}
+				if(frame->_number>=_loop_in && frame->_number<=_loop_out){
+					_m_frame_channel.send(frame);
+				}
+			}
+		}
+	}
+
     void HPVPlayer::resetPlayer()
     {
         _local_time_per_frame = _global_time_per_frame;
@@ -789,7 +829,15 @@ namespace HPV {
     
     unsigned char* HPVPlayer::getBufferPtr()
     {
-        return _frame_buffer;
+		auto it = std::find_if(_read_frames.begin(), _read_frames.end(), [&](Frame * frame){
+			return frame->_number == _curr_frame;
+		});
+		if(it!=_read_frames.end()){
+			return (*it)->_buffer;
+		}else{
+			HPV_ERROR("Empty buffer returning null");
+			return nullptr;
+		}
     }
     
     int HPVPlayer::getFrameRate()

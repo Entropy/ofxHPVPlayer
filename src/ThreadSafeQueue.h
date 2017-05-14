@@ -27,13 +27,13 @@ class ThreadSafe_Queue
 private:
     mutable std::mutex mtx;
     std::queue<T> data_queue;
-    std::condition_variable data_cond;
+	std::condition_variable data_cond;
     
 public:
-    ThreadSafe_Queue() {}
+	ThreadSafe_Queue() {}
     ThreadSafe_Queue(ThreadSafe_Queue const& other)
     {
-        std::lock_guard<std::mutex> lock(other.mtx);
+		std::lock_guard<std::mutex> lock(other.mtx);
         data_queue=other.data_queue;
     }
     
@@ -47,7 +47,9 @@ public:
     void wait_and_pop(T& value)
     {
         std::unique_lock<std::mutex> lock(mtx);
-        data_cond.wait(lock,[this]{return !data_queue.empty();});
+		if(data_queue.empty()){
+			data_cond.wait(lock,[this]{return !data_queue.empty();});
+		}
         value=data_queue.front();
         data_queue.pop();
     }
@@ -79,7 +81,7 @@ public:
         std::shared_ptr<T> res(std::make_shared<T>(data_queue.front()));
         data_queue.pop();
         return res;
-    }
+	}
     
     bool empty() const
     {
@@ -98,5 +100,5 @@ public:
         std::lock_guard<std::mutex> lock(mtx);
         std::queue<T> empty;
         std::swap(data_queue, empty);
-    }
+	}
 };

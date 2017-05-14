@@ -113,6 +113,10 @@ bool ofxHPVPlayer::loadAsync(string name)
     return this->load(name);
 }
 
+void ofxHPVPlayer::update(){
+	m_hpv_player->update();
+}
+
 void ofxHPVPlayer::play()
 {
     if (needsDoubleBuffering())
