@@ -3,8 +3,11 @@
 #include "HPVPlayer.h"
 #include "lz4.h"
 #include "lz4hc.h"
+#include "HPVManager.h"
+
 
 namespace HPV {
+	constexpr size_t PREBUFFER_SIZE = 4;
 
     static std::string HPVCompressionTypeStrings[] =
     {
@@ -39,6 +42,7 @@ namespace HPV {
     , _global_time_per_frame(0)
     , _local_time_per_frame(0)
     , _curr_frame(0)
+	, _send_frame(0)
 	, _curr_buffered_frame(0)
     , _loop_in(0)
     , _loop_out(0)
@@ -189,7 +193,7 @@ namespace HPV {
         this->resetPlayer();
         
         // allocate the frame buffer, happens only once. We re-use the same memory space
-		for(int i=0;i<10;i++){
+		for(size_t i=0;i<PREBUFFER_SIZE;i++){
 			try{
 				_frames.emplace_back(_bytes_per_frame,i);
 			}catch(...){
@@ -201,8 +205,10 @@ namespace HPV {
         
 		// read the first frame
 		for(Frame & frame: _frames){
+			_send_frame = frame._number;
 			_m_frame_channel.send(&frame);
 		}
+		_send_frame += 1;
         
         this->launchUpdateThread();
         
@@ -293,7 +299,7 @@ namespace HPV {
         if (_gather_stats)
         {
             _before_read = ns();
-            _before_decode = _before_read;
+			_before_decode = _before_read;
         }
         
 		_ifs.seekg(_frame_offsets_table[frame._number]);
@@ -302,23 +308,25 @@ namespace HPV {
         {
 			HPV_ERROR("Failed to seek to %lu", _frame_offsets_table[frame._number]);
             return HPV_RET_ERROR;
-        }
+		}
 
-        
-        if (!_l4z_buffer)
-        {
-			HPV_ERROR("Couldn't create decompression buffer for frame %" PRId64, frame._number);
-            return HPV_RET_ERROR;
-        }
+		HPVManager::ReadChunk read_chunk{ &_ifs, _l4z_buffer, _frame_sizes_table[frame._number]};
+		auto f = read_chunk.done.get_future();
+		ManagerSingleton()->newChunk(&read_chunk);
+		f.wait();
+		if(!f.get()){
+			HPV_ERROR("Couldn't read compressed data from disk!");
+			return HPV_RET_ERROR;
+		}
 
         // read L4Z data from disk into buffer
-		_ifs.read(_l4z_buffer, _frame_sizes_table[frame._number]);
+//		_ifs.read(_l4z_buffer, _frame_sizes_table[frame._number]);
         
-        if (!_ifs.good())
-        {
-            HPV_ERROR("Couldn't read compressed data from disk!");
-            return HPV_RET_ERROR;
-        }
+//        if (!_ifs.good())
+//        {
+//            HPV_ERROR("Couldn't read compressed data from disk!");
+//            return HPV_RET_ERROR;
+//        }
         
         if (_gather_stats)
         {
@@ -661,7 +669,7 @@ namespace HPV {
         }
         
         return HPV_RET_ERROR_NONE;
-    }
+	}
     
     int HPVPlayer::setPlayDirection(uint8_t direction)
     {
@@ -703,14 +711,71 @@ namespace HPV {
     
 	int HPVPlayer::seek(int64_t seek_to)
     {
-		if (seek_to < 0 || seek_to >= _header.number_of_frames)
-            return HPV_RET_ERROR;
+//		if (seek_to < 0 || seek_to >= _header.number_of_frames)
+//            return HPV_RET_ERROR;
         
 		seek_to = clamp<int64_t>(seek_to, _loop_in, _loop_out);
 
 		Frame * frame;
 		while(_m_read_frame_channel.tryReceive(frame)){
+			//std::cout << int(_id) << " receiving frame " << frame->_number << endl;
 			_read_frames.push_back(frame);
+		}
+
+//		if(seek_to > _curr_frame || (_curr_frame+1 > _loop_out && seek_to < _curr_frame)){
+//			_read_frames.erase(std::remove_if(_read_frames.begin(), _read_frames.end(),
+//				[this, seek_to](Frame * frame){
+//					bool remove = false;
+//					if(seek_to > _curr_frame){
+//						remove = frame->_number < seek_to && frame->_number > seek_to - PREBUFFER_SIZE;
+//					}else{
+//						remove = frame->_number >= _curr_frame || frame->_number < seek_to;
+//					}
+//					if(remove){
+//						std::cout << int(_id) << " going to send frame " << frame->_number << " with seek_to " << seek_to << " and currframe " << _curr_frame << endl;
+//						frame->_number += PREBUFFER_SIZE;
+//						if(frame->_number > _loop_out){
+//							if(_loop_mode != HPV_LOOPMODE_NONE){
+//								frame->_number %= (_loop_out+1 - _loop_in);
+//								frame->_number += _loop_in;
+//							}
+//						}
+//						if(frame->_number>=_loop_in && frame->_number<=_loop_out){
+//							std::cout << int(_id) << " sending frame " << frame->_number << endl;
+//							_m_frame_channel.send(frame);
+//						}else{
+//							remove = false;
+//						}
+//					}
+//					return remove;
+//				}), _read_frames.end());
+//		}
+
+		if(ofWrap(ofWrap(_send_frame, _loop_in, _loop_out) - ofWrap(seek_to, _loop_in, _loop_out), _loop_in, _loop_out) > PREBUFFER_SIZE){
+			_send_frame = seek_to;
+		}
+
+		if(seek_to!=_curr_frame){
+			auto it = std::find_if(_read_frames.begin(), _read_frames.end(), [&](Frame * frame){
+				return frame->_number == _curr_frame;
+			});
+			if(it!=_read_frames.end()){
+				frame = *it;
+				_read_frames.erase(it);
+				//std::cout << int(_id) << " going to send frame " << frame->_number << " with seek_to " << seek_to << " and currframe " << _curr_frame << endl;
+				frame->_number = _send_frame;
+				if(frame->_number>=_loop_in && frame->_number<=_loop_out){
+					//std::cout << int(_id) << " sending frame " << frame->_number << endl;
+					_m_frame_channel.send(frame);
+					_send_frame += 1;
+					if(_send_frame > _loop_out){
+						if(_loop_mode != HPV_LOOPMODE_NONE){
+							_send_frame %= (_loop_out+1 - _loop_in);
+							_send_frame += _loop_in;
+						}
+					}
+				}
+			}
 		}
 
 		auto it = std::find_if(_read_frames.begin(), _read_frames.end(), [&](Frame * frame){
@@ -721,9 +786,10 @@ namespace HPV {
 		if(received){
 			_curr_frame = seek_to;
 		}else{
-			if(seek_to>_curr_frame+10 || (_curr_frame+10 < _loop_out && seek_to < _curr_frame)){
+			if(seek_to>_curr_frame+PREBUFFER_SIZE || (_curr_frame+PREBUFFER_SIZE < _loop_out && seek_to < _curr_frame)){
 				if(_read_frames.empty()){
 					_m_read_frame_channel.receive(frame);
+					//std::cout << int(_id) << " receiving frame after full clear " << frame->_number << endl;
 					_read_frames.push_back(frame);
 				}
 				int64_t frame_num = seek_to;
@@ -732,9 +798,11 @@ namespace HPV {
 					frame_num += 1;
 					_m_frame_channel.send(frame);
 				}
+				_read_frames.clear();
 			}
 			while(!received){
 				_m_read_frame_channel.receive(frame);
+				//std::cout << int(_id) << " receiving frame after lock " << frame->_number << endl;
 				_read_frames.push_back(frame);
 				if(frame->_number==seek_to){
 					received = true;
@@ -747,32 +815,32 @@ namespace HPV {
     
 
 	void HPVPlayer::update(){
-		Frame * frame = nullptr;
-		while(_m_read_frame_channel.tryReceive(frame)){
-			_read_frames.push_back(frame);
-		}
-		if(_read_frames.empty()){
-			_m_read_frame_channel.receive(frame);
-			_read_frames.push_back(frame);
-		}else{
-			auto it = std::find_if(_read_frames.begin(), _read_frames.end(), [&](Frame * frame){
-				return frame->_number == _curr_frame;
-			});
-			if(it!=_read_frames.end()){
-				frame = *it;
-				_read_frames.erase(it);
-				frame->_number += 10;
-				if(frame->_number > _loop_out){
-					if(_loop_mode != HPV_LOOPMODE_NONE){
-						frame->_number %= (_loop_out+1 - _loop_in);
-						frame->_number += _loop_in;
-					}
-				}
-				if(frame->_number>=_loop_in && frame->_number<=_loop_out){
-					_m_frame_channel.send(frame);
-				}
-			}
-		}
+//		Frame * frame = nullptr;
+//		while(_m_read_frame_channel.tryReceive(frame)){
+//			_read_frames.push_back(frame);
+//		}
+//		if(_read_frames.empty()){
+//			_m_read_frame_channel.receive(frame);
+//			_read_frames.push_back(frame);
+//		}else{
+//			auto it = std::find_if(_read_frames.begin(), _read_frames.end(), [&](Frame * frame){
+//				return frame->_number == _curr_frame;
+//			});
+//			if(it!=_read_frames.end()){
+//				frame = *it;
+//				_read_frames.erase(it);
+//				frame->_number += PREBUFFER_SIZE;
+//				if(frame->_number > _loop_out){
+//					if(_loop_mode != HPV_LOOPMODE_NONE){
+//						frame->_number %= (_loop_out+1 - _loop_in);
+//						frame->_number += _loop_in;
+//					}
+//				}
+//				if(frame->_number>=_loop_in && frame->_number<=_loop_out){
+//					_m_frame_channel.send(frame);
+//				}
+//			}
+//		}
 	}
 
     void HPVPlayer::resetPlayer()

@@ -17,6 +17,8 @@
 #include "ThreadSafeQueue.h"
 #include "HPVEvent.h"
 #include "HPVPlayer.h"
+#include "ofThreadChannel.h"
+#include <future>
 
 namespace HPV {
 
@@ -41,14 +43,27 @@ namespace HPV {
         void                        postEvent(const HPVEvent& event);
         void                        processEvents();
         bool                        isValidNodeId(uint8_t node_id) { return node_id >= 0 && node_id < m_players.size(); }
-        
-        std::vector<HPVEventCallback> m_event_listeners;
 
+        std::vector<HPVEventCallback> m_event_listeners;
+		struct ReadChunk{
+			ReadChunk(std::ifstream * ifs, char* bufferto, size_t sizeread)
+				:ifs(ifs)
+				,bufferto(bufferto)
+				,sizeread(sizeread){}
+			std::ifstream * ifs;
+			char* bufferto;
+			size_t sizeread;
+			std::promise<bool> done;
+		};
+		void						newChunk(ReadChunk * chunk);
     private:
         std::map<uint8_t, HPVPlayerRef>   m_players;
         ThreadSafe_Queue<HPVEvent>  m_event_queue;
         uint8_t                     m_num_players;
         int8_t                      addPlayer();
+		std::thread					_disk_reader_thread;
+
+		ofThreadChannel<ReadChunk*>	m_disk_read_channel;
     };
     
     /*

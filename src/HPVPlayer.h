@@ -179,6 +179,7 @@ namespace HPV {
         uint64_t        _global_time_per_frame;
         uint64_t        _local_time_per_frame;
         int64_t         _curr_frame;
+		int64_t         _send_frame;
 		int64_t         _curr_buffered_frame;
         int64_t         _loop_in;
         int64_t         _loop_out;
@@ -202,6 +203,7 @@ namespace HPV {
 
 		void            launchUpdateThread();
 		void            thread_function();
+
     };
     
     typedef std::shared_ptr<HPV::HPVPlayer> HPVPlayerRef;

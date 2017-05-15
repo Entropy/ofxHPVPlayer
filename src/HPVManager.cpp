@@ -74,13 +74,29 @@ namespace HPV {
     {
         m_players.clear();
         m_num_players = 0;
+
+		_disk_reader_thread = std::thread([this]{
+			ReadChunk * p = nullptr;
+			while(m_disk_read_channel.receive(p)){
+				p->ifs->read(p->bufferto, p->sizeread);
+				p->done.set_value(p->ifs->good());
+			}
+		});
     }
     
     HPVManager::~HPVManager()
     {
         m_event_listeners.clear();
+		m_disk_read_channel.close();
+		if(_disk_reader_thread.joinable()){
+			_disk_reader_thread.join();
+		}
         HPV_VERBOSE("~HPVMAnager");
     }
+
+	void HPVManager::newChunk(ReadChunk * chunk){
+		m_disk_read_channel.send(chunk);
+	}
     
     int8_t HPVManager::addPlayer()
     {
