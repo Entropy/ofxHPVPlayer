@@ -181,17 +181,10 @@ namespace HPV {
         _bytes_per_frame = _header.video_width * _header.video_height;
         
         // this will need to be a bit worked out, for all different formats
-        if (_header.compression_type == HPVCompressionType::HPV_TYPE_DXT1_NO_ALPHA)
-        {
-            _bytes_per_frame >>= 1;
-        }
-
-		std::cout << "average frame size " << crc / double(_header.number_of_frames) << std::endl;
-		std::cout << "at 60fps " << crc / double(_header.number_of_frames) * 60 / 1024. / 1024. << "MBps" << std::endl;
-		std::cout << "max frame size " << _frame_max_size << std::endl;
-		std::cout << "at 60fps " << _frame_max_size * 60 / 1024. / 1024. << "MBps" << std::endl;
-		std::cout << "uncompressed frame size " << _bytes_per_frame << std::endl;
-		std::cout << "at 60fps " << _bytes_per_frame * 60 / 1024. / 1024. << "MBps" << std::endl;
+		if (_header.compression_type == HPVCompressionType::HPV_TYPE_DXT1_NO_ALPHA)
+		{
+			_bytes_per_frame >>= 1;
+		}
         
         // get the native frame rate of the file (was given as parameter during compression) and set initial speed to speed 1
         uint32_t fps = _header.frame_rate;
@@ -223,6 +216,14 @@ namespace HPV {
         _is_init = true;
         
         HPV_VERBOSE("%s", this->getFileSummary().c_str());
+
+		std::cout << "average frame size " << crc / double(_header.number_of_frames) << std::endl;
+		std::cout << "at 60fps " << crc / double(_header.number_of_frames) * 60 / 1024. / 1024. << "MBps" << std::endl << std::endl;
+		std::cout << "max frame size " << _frame_max_size << std::endl;
+		std::cout << "at 60fps " << _frame_max_size * 60 / 1024. / 1024. << "MBps" << std::endl << std::endl;
+		std::cout << "uncompressed frame size " << _bytes_per_frame << std::endl;
+		std::cout << "at 60fps " << _bytes_per_frame * 60 / 1024. / 1024. << "MBps" << std::endl;
+		std::cout << "-----------------------------------------------------------------------" << std::endl << std::endl;
 
         return HPV_RET_ERROR_NONE;
     }
