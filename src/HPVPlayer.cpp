@@ -163,11 +163,7 @@ namespace HPV {
 			if(_frame_sizes_table[i]>_frame_max_size){
 				_frame_max_size = _frame_sizes_table[i];
 			}
-        }
-		std::cout << "average frame size " << crc / double(_header.number_of_frames) << std::endl;
-		std::cout << "at 60fps " << crc / double(_header.number_of_frames) * 60 / 1024. / 1024. << "MBps" << std::endl;
-		std::cout << "max frame size " << _frame_max_size << std::endl;
-		std::cout << "at 60fps " << _frame_max_size * 60 / 1024. / 1024. << "MBps" << std::endl;
+		}
 
 		// create local buffer for storing L4Z compressed frame
 		_l4z_buffer = new (std::nothrow) char[ _frame_max_size ];
@@ -189,6 +185,13 @@ namespace HPV {
         {
             _bytes_per_frame >>= 1;
         }
+
+		std::cout << "average frame size " << crc / double(_header.number_of_frames) << std::endl;
+		std::cout << "at 60fps " << crc / double(_header.number_of_frames) * 60 / 1024. / 1024. << "MBps" << std::endl;
+		std::cout << "max frame size " << _frame_max_size << std::endl;
+		std::cout << "at 60fps " << _frame_max_size * 60 / 1024. / 1024. << "MBps" << std::endl;
+		std::cout << "uncompressed frame size " << _bytes_per_frame << std::endl;
+		std::cout << "at 60fps " << _bytes_per_frame * 60 / 1024. / 1024. << "MBps" << std::endl;
         
         // get the native frame rate of the file (was given as parameter during compression) and set initial speed to speed 1
         uint32_t fps = _header.frame_rate;
