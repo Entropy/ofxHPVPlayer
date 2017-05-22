@@ -27,6 +27,9 @@ static const GLchar* vert_CT_CoCg_Y = R"(
 static const GLchar* frag_CT_CoCg_Y = R"(
     #version 410
 
+    // addressed by OF
+    uniform vec4 globalColor;
+
     const vec4 offsets = vec4(0.50196078431373, 0.50196078431373, 0.0, 0.0);
     const float scale_factor = 255.0 / 8.0;
 
@@ -46,7 +49,7 @@ static const GLchar* frag_CT_CoCg_Y = R"(
         float Co = rgba.r / scale;
         float Cg = rgba.g / scale;
         
-        outputColor = vec4(Y + Co - Cg, Y + Cg, Y - Co - Cg, 1);
+        outputColor = vec4(Y + Co - Cg, Y + Cg, Y - Co - Cg, 1) * globalColor;
     }
 )";
 
