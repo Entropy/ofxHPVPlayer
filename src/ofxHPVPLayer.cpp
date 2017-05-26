@@ -27,6 +27,9 @@ static const GLchar* vert_CT_CoCg_Y = R"(
 static const GLchar* frag_CT_CoCg_Y = R"(
     #version 410
 
+    // addressed by OF
+    uniform vec4 globalColor;
+
     const vec4 offsets = vec4(0.50196078431373, 0.50196078431373, 0.0, 0.0);
     const float scale_factor = 255.0 / 8.0;
 
@@ -46,7 +49,7 @@ static const GLchar* frag_CT_CoCg_Y = R"(
         float Co = rgba.r / scale;
         float Cg = rgba.g / scale;
         
-        outputColor = vec4(Y + Co - Cg, Y + Cg, Y - Co - Cg, 1);
+        outputColor = vec4(Y + Co - Cg, Y + Cg, Y - Co - Cg, 1) * globalColor;
     }
 )";
 
@@ -404,6 +407,25 @@ void ofxHPVPlayer::draw(float x, float y, float width, float height)
         }
     
         m_texture.draw(x, y, width, height);
+
+        if (m_hpv_player->getCompressionType() == HPVCompressionType::HPV_TYPE_SCALED_DXT5_CoCg_Y)
+        {
+            m_shader.end();
+        }
+    }
+}
+
+void ofxHPVPlayer::drawSubsection(const ofRectangle& drawBounds, const ofRectangle& subsectionBounds)
+{
+    if (m_texture.isAllocated())
+    {
+        if (m_hpv_player->getCompressionType() == HPVCompressionType::HPV_TYPE_SCALED_DXT5_CoCg_Y)
+        {
+            m_shader.begin();
+            m_shader.bindDefaults();
+        }
+
+        m_texture.drawSubsection(drawBounds, subsectionBounds);
 
         if (m_hpv_player->getCompressionType() == HPVCompressionType::HPV_TYPE_SCALED_DXT5_CoCg_Y)
         {
