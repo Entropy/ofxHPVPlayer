@@ -181,6 +181,25 @@ namespace HPV {
         return HPV_RET_ERROR_NONE;
     }
 
+	int HPVRenderBridge::deleteGPUResources(uint8_t node_id)
+	{
+		auto& data = m_render_data[node_id];
+		if (data.gpu_resources_need_init)
+		{
+			return HPV_RET_ERROR_NONE;
+		}
+
+		if (HPVRendererType::RENDERER_OPENGLCORE == m_renderer)
+		{
+			glDeleteTextures(1, &data.opengl.tex);
+			glDeleteBuffers(2, &data.opengl.pboIds[0]);
+		}
+
+		m_render_data.erase(node_id);
+
+		return HPV_RET_ERROR_NONE;
+	}
+
     intptr_t HPVRenderBridge::getTexturePtr(uint8_t node_id)
     {
         if (HPVRendererType::RENDERER_OPENGLCORE == m_renderer)

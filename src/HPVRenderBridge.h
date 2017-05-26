@@ -125,6 +125,7 @@ namespace HPV {
 
         int createGPUResources(uint8_t node_id);
         int deleteGPUResources();
+		int deleteGPUResources(uint8_t node_id);
         int nodeHasResources(uint8_t node_id);
         intptr_t getTexturePtr(uint8_t node_id);
         

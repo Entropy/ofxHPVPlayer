@@ -317,8 +317,10 @@ void ofxHPVPlayer::lastFrame()
 // Closes the video file and the file stream
 void ofxHPVPlayer::close()
 {
+	HPV::RendererSingleton()->deleteGPUResources(m_hpv_player->getID());
 	HPV::ManagerSingleton()->close(m_hpv_player);
     m_hpv_player->close();
+	m_hpv_player.reset();
 }
 
 // Set loop in point, this is the new 'start' point
