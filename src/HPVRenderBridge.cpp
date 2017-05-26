@@ -327,11 +327,13 @@ namespace HPV {
 
     void HPVRenderBridge::updateTextures()
     {
-        std::vector<bool> update_flags = ManagerSingleton()->update();
+		std::map<uint8_t, bool> update_flags = ManagerSingleton()->update();
 
-        for (uint8_t player_idx = 0; player_idx < update_flags.size(); ++player_idx)
+		for (auto & update_flag: update_flags)
         {
-            if (update_flags[player_idx])
+			uint8_t player_idx = update_flag.first;
+			bool update = update_flag.second;
+			if (update)
             {
                 /* Get specifics for this player */
                 HPVRenderData& render_data = m_render_data[player_idx];

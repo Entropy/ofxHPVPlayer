@@ -38,11 +38,12 @@ namespace HPV {
         uint8_t                     initPlayer();
         HPVPlayerRef                getPlayer(uint8_t node_id);
         std::size_t                 getNumPlayers() { return m_players.size(); }
-        std::vector<bool>           update();
+		std::map<uint8_t, bool>     update();
         void                        closeAll();
+		void                        close(HPVPlayerRef player);
         void                        postEvent(const HPVEvent& event);
         void                        processEvents();
-        bool                        isValidNodeId(uint8_t node_id) { return node_id >= 0 && node_id < m_players.size(); }
+		bool                        isValidNodeId(uint8_t node_id) { return node_id >= 0 && node_id < m_num_players; }
 
         std::vector<HPVEventCallback> m_event_listeners;
 		struct ReadChunk{

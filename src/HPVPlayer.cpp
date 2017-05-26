@@ -67,7 +67,7 @@ namespace HPV {
     }
     
     HPVPlayer::~HPVPlayer()
-    {
+	{
         if (_is_init)
         {
             close();

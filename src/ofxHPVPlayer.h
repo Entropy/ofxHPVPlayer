@@ -90,6 +90,9 @@ public:
     
     void                draw(float x, float y, float width, float height);
 
+	HPVPlayerRef        getHPVPlayer(){
+		return m_hpv_player;
+	}
 private:
     ofShader            m_shader;
     ofTexture           m_texture;

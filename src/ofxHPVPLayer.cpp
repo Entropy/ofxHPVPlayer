@@ -314,6 +314,7 @@ void ofxHPVPlayer::lastFrame()
 // Closes the video file and the file stream
 void ofxHPVPlayer::close()
 {
+	HPV::ManagerSingleton()->close(m_hpv_player);
     m_hpv_player->close();
 }
 

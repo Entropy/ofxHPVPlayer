@@ -134,24 +134,24 @@ namespace HPV {
     }
     
     
-    std::vector<bool> HPVManager::update()
+	std::map<uint8_t, bool> HPVManager::update()
     {
-        std::vector<bool> update_flags;
+		std::map<uint8_t, bool> update_flags;
 
         if (m_players.size() > 0)
-        {
-            update_flags.resize(m_players.size(), false);
+		{
 
-            for (uint8_t i = 0; i < m_players.size(); ++i)
+			for (auto & p: m_players)
             {
-                if (!m_players[i]->isLoaded())
+				auto & player = p.second;
+				if (!player->isLoaded())
                 {
-                    update_flags[i] = false;
+					update_flags[player->getID()] = false;
                 }
                 else
                 {
-                    update_flags[i] = m_players[i]->hasNewFrame();
-                }
+					update_flags[player->getID()] = player->hasNewFrame();
+				}
             }
         }
         
@@ -192,6 +192,11 @@ namespace HPV {
             }
         }
     }
+
+	void HPVManager::close(HPVPlayerRef player){
+		m_players.erase(player->getID());
+		player->close();
+	}
     
     /*******************************************************************************
      * GLOBAL Manager functions
