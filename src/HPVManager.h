@@ -22,7 +22,7 @@
 
 namespace HPV {
 
-    const uint8_t MAX_NUMBER_OF_PLAYERS = 6;
+    const uint8_t MAX_NUMBER_OF_PLAYERS = 100;
     
     /*
      *  The HPVManager class is the global manager for all HPV resources.
