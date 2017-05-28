@@ -720,8 +720,8 @@ namespace HPV {
     
 	int HPVPlayer::seek(int64_t seek_to)
     {
-//		if (seek_to < 0 || seek_to >= _header.number_of_frames)
-//            return HPV_RET_ERROR;
+		if (_loop_mode && HPV_LOOPMODE_NONE && (seek_to < 0 || seek_to >= _header.number_of_frames))
+			return HPV_RET_ERROR;
         
 		seek_to = clamp<int64_t>(seek_to, _loop_in, _loop_out);
 		_now += 1;
@@ -779,10 +779,8 @@ namespace HPV {
 					_m_frame_channel.send(frame);
 					_send_frame += 1;
 					if(_send_frame > _loop_out){
-						if(_loop_mode != HPV_LOOPMODE_NONE){
-							_send_frame %= (_loop_out+1 - _loop_in);
-							_send_frame += _loop_in;
-						}
+						_send_frame %= (_loop_out+1 - _loop_in);
+						_send_frame += _loop_in;
 					}
 				}
 			}
@@ -798,10 +796,8 @@ namespace HPV {
 				   _m_frame_channel.send(frame);
 				   _send_frame += 1;
 				   if(_send_frame > _loop_out){
-					   if(_loop_mode != HPV_LOOPMODE_NONE){
-						   _send_frame %= (_loop_out+1 - _loop_in);
-						   _send_frame += _loop_in;
-					   }
+					   _send_frame %= (_loop_out+1 - _loop_in);
+					   _send_frame += _loop_in;
 				   }
 			   }
 			}
@@ -826,10 +822,8 @@ namespace HPV {
 				_m_frame_channel.send(frame);
 				_send_frame = seek_to + 1;
 				if(_send_frame > _loop_out){
-					if(_loop_mode != HPV_LOOPMODE_NONE){
-						_send_frame %= (_loop_out+1 - _loop_in);
-						_send_frame += _loop_in;
-					}
+					_send_frame %= (_loop_out+1 - _loop_in);
+					_send_frame += _loop_in;
 				}
 			}
 			if(seek_to>_curr_frame+PREBUFFER_SIZE || (_curr_frame+PREBUFFER_SIZE < _loop_out && seek_to < _curr_frame)){
@@ -843,6 +837,10 @@ namespace HPV {
 				for(Frame * frame: _read_frames){
 					frame->_number = _send_frame;
 					_send_frame += 1;
+					if(_send_frame > _loop_out){
+						_send_frame %= (_loop_out+1 - _loop_in);
+						_send_frame += _loop_in;
+					}
 					_m_frame_channel.send(frame);
 				}
 				_read_frames.clear();
@@ -858,10 +856,8 @@ namespace HPV {
 					_m_frame_channel.send(frame);
 					_send_frame = seek_to + 1;
 					if(_send_frame > _loop_out){
-						if(_loop_mode != HPV_LOOPMODE_NONE){
-							_send_frame %= (_loop_out+1 - _loop_in);
-							_send_frame += _loop_in;
-						}
+						_send_frame %= (_loop_out+1 - _loop_in);
+						_send_frame += _loop_in;
 					}
 				}
 				_m_read_frame_channel.receive(frame);
