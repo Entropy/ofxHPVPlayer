@@ -159,6 +159,7 @@ namespace HPV {
 
 			unsigned char* _buffer;
 			uint32_t _number;
+			uint64_t _read_age = 0;
 		};
 
        
@@ -193,6 +194,7 @@ namespace HPV {
 		std::thread     _update_thread;
 
         HPVHeader       _header;
+		uint64_t		_now=0;
         
         void            populateFrameOffsets(uint32_t);
 		int             readFrame(Frame & frame);

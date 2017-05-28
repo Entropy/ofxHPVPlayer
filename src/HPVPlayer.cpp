@@ -724,10 +724,11 @@ namespace HPV {
 //            return HPV_RET_ERROR;
         
 		seek_to = clamp<int64_t>(seek_to, _loop_in, _loop_out);
-
+		_now += 1;
 		Frame * frame;
 		while(_m_read_frame_channel.tryReceive(frame)){
 			//std::cout << int(_id) << " receiving frame " << frame->_number << endl;
+			frame->_read_age = _now;
 			_read_frames.push_back(frame);
 		}
 
@@ -787,6 +788,26 @@ namespace HPV {
 			}
 		}
 
+		_read_frames.erase(std::remove_if(_read_frames.begin(), _read_frames.end(), [&](Frame * frame){
+			bool send = (_now - frame->_read_age) > PREBUFFER_SIZE;
+			send &= frame->_number != seek_to;
+			if(send){
+			   frame->_number = _send_frame;
+			   if(frame->_number>=_loop_in && frame->_number<=_loop_out){
+				   //std::cout << int(_id) << " sending frame " << frame->_number << endl;
+				   _m_frame_channel.send(frame);
+				   _send_frame += 1;
+				   if(_send_frame > _loop_out){
+					   if(_loop_mode != HPV_LOOPMODE_NONE){
+						   _send_frame %= (_loop_out+1 - _loop_in);
+						   _send_frame += _loop_in;
+					   }
+				   }
+			   }
+			}
+			return send;
+		}), _read_frames.end());
+
 		auto it = std::find_if(_read_frames.begin(), _read_frames.end(), [&](Frame * frame){
 			return frame->_number == seek_to;
 		});
@@ -795,22 +816,56 @@ namespace HPV {
 		if(received){
 			_curr_frame = seek_to;
 		}else{
+			if(_read_frames.size() == PREBUFFER_SIZE){
+				auto oldest = std::max_element(_read_frames.begin(), _read_frames.end(), [&](Frame * frame1, Frame * frame2){
+					return frame1->_read_age > frame2->_read_age;
+				});
+				auto frame = *oldest;
+				_read_frames.erase(oldest);
+				frame->_number = seek_to;
+				_m_frame_channel.send(frame);
+				_send_frame = seek_to + 1;
+				if(_send_frame > _loop_out){
+					if(_loop_mode != HPV_LOOPMODE_NONE){
+						_send_frame %= (_loop_out+1 - _loop_in);
+						_send_frame += _loop_in;
+					}
+				}
+			}
 			if(seek_to>_curr_frame+PREBUFFER_SIZE || (_curr_frame+PREBUFFER_SIZE < _loop_out && seek_to < _curr_frame)){
 				if(_read_frames.empty()){
 					_m_read_frame_channel.receive(frame);
+					frame->_read_age = _now;
 					//std::cout << int(_id) << " receiving frame after full clear " << frame->_number << endl;
 					_read_frames.push_back(frame);
 				}
-				int64_t frame_num = seek_to;
+				_send_frame = seek_to;
 				for(Frame * frame: _read_frames){
-					frame->_number = frame_num;
-					frame_num += 1;
+					frame->_number = _send_frame;
+					_send_frame += 1;
 					_m_frame_channel.send(frame);
 				}
 				_read_frames.clear();
 			}
 			while(!received){
+				if(_read_frames.size() == PREBUFFER_SIZE){
+					auto oldest = std::max_element(_read_frames.begin(), _read_frames.end(), [&](Frame * frame1, Frame * frame2){
+						return frame1->_read_age > frame2->_read_age;
+					});
+					auto frame = *oldest;
+					_read_frames.erase(oldest);
+					frame->_number = seek_to;
+					_m_frame_channel.send(frame);
+					_send_frame = seek_to + 1;
+					if(_send_frame > _loop_out){
+						if(_loop_mode != HPV_LOOPMODE_NONE){
+							_send_frame %= (_loop_out+1 - _loop_in);
+							_send_frame += _loop_in;
+						}
+					}
+				}
 				_m_read_frame_channel.receive(frame);
+				frame->_read_age = _now;
 				//std::cout << int(_id) << " receiving frame after lock " << frame->_number << endl;
 				_read_frames.push_back(frame);
 				if(frame->_number==seek_to){
