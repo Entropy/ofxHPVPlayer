@@ -29,11 +29,15 @@ static const GLchar* frag_CT_CoCg_Y = R"(
 
     // addressed by OF
     uniform vec4 globalColor;
+    // end addressed by OF
 
     const vec4 offsets = vec4(0.50196078431373, 0.50196078431373, 0.0, 0.0);
     const float scale_factor = 255.0 / 8.0;
 
     uniform sampler2D hpv_tex;
+    uniform float contrast;
+    uniform float brightness;
+
     in vec2 tc;
 
     out vec4 outputColor;
@@ -48,14 +52,23 @@ static const GLchar* frag_CT_CoCg_Y = R"(
         float scale = rgba.b * scale_factor + 1;
         float Co = rgba.r / scale;
         float Cg = rgba.g / scale;
+
+        vec4 color = vec4(Y + Co - Cg, Y + Cg, Y - Co - Cg, 1) * globalColor;
+
+        // Apply contrast.
+        color.rgb = mix(vec3(0.18), color.rgb, contrast);
+
+        // Apply brightness.
+        color.rgb = max(vec3(0.0), color.rgb + vec3(brightness));
         
-        outputColor = vec4(Y + Co - Cg, Y + Cg, Y - Co - Cg, 1) * globalColor;
+        outputColor = color;
     }
 )";
 
 ofxHPVPlayer::ofxHPVPlayer()
+	: m_brightness(0.0f)
+	, m_contrast(1.0f)
 {
-
 }
 
 ofxHPVPlayer::~ofxHPVPlayer()
@@ -406,6 +419,8 @@ void ofxHPVPlayer::draw(float x, float y, float width, float height)
         {
             m_shader.begin();
             m_shader.bindDefaults();
+			m_shader.setUniform1f("brightness", m_brightness);
+			m_shader.setUniform1f("contrast", m_contrast);
         }
     
         m_texture.draw(x, y, width, height);
@@ -425,7 +440,9 @@ void ofxHPVPlayer::drawSubsection(const ofRectangle& drawBounds, const ofRectang
         {
             m_shader.begin();
             m_shader.bindDefaults();
-        }
+			m_shader.setUniform1f("brightness", m_brightness);
+			m_shader.setUniform1f("contrast", m_contrast);
+		}
 
         m_texture.drawSubsection(drawBounds, subsectionBounds);
 
