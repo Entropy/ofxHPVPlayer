@@ -94,6 +94,10 @@ public:
 	HPVPlayerRef        getHPVPlayer(){
 		return m_hpv_player;
 	}
+
+	float               m_brightness;
+	float               m_contrast;
+
 private:
     ofShader            m_shader;
     ofTexture           m_texture;
