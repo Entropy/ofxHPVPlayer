@@ -65,8 +65,10 @@ namespace HPV
         
         /* VERSION 4 - 6 */
         uint32_t crc_frame_sizes;       /* CRC for the frame size table */
-        uint32_t reserved_1;
-        uint32_t reserved_2;
+		bool in_line;
+		bool reserved_1;
+		uint16_t reserved_2;
+		uint32_t reserved_3;
     };
 
     // amount of defined header fields

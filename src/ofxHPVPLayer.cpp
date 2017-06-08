@@ -162,12 +162,12 @@ bool ofxHPVPlayer::isPaused() const
 
 bool ofxHPVPlayer::isLoaded() const
 {
-    return static_cast<bool>(m_hpv_player->isLoaded());
+	return m_hpv_player && static_cast<bool>(m_hpv_player->isLoaded());
 }
 
 bool ofxHPVPlayer::isPlaying() const
 {
-    return static_cast<bool>(m_hpv_player->isPlaying());
+	return m_hpv_player && static_cast<bool>(m_hpv_player->isPlaying());
 }
 
 float ofxHPVPlayer::getPosition() const

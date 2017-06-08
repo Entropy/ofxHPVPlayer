@@ -153,7 +153,13 @@ namespace HPV {
         _frame_sizes_table = new uint32_t[_header.number_of_frames];
         _frame_offsets_table = new uint64_t[_header.number_of_frames];
         
-        _ifs.read((char *)_frame_sizes_table, _num_bytes_in_sizes_table);
+		if(_header.in_line){
+			_ifs.seekg(sizeof(HPVHeader) + _header.crc_frame_sizes);
+			_ifs.read((char *)_frame_sizes_table, _num_bytes_in_sizes_table);
+			_ifs.seekg(sizeof(HPVHeader));
+		}else{
+			_ifs.read((char *)_frame_sizes_table, _num_bytes_in_sizes_table);
+		}
         
         uint32_t crc = 0;
 		_frame_max_size = _frame_sizes_table[0];
@@ -170,11 +176,11 @@ namespace HPV {
         
         if (crc != _header.crc_frame_sizes)
         {
-            HPV_ERROR("Frame sizes table CRC doesn't match, corrupt file")
+			HPV_ERROR("Frame sizes table CRC doesn't match, corrupt %s file. header: %d, calculated %d", _header.in_line ? "inline" : "", _header.crc_frame_sizes, crc);
             return HPV_RET_ERROR;
         }
         
-        uint32_t start_offset = _num_bytes_in_header + _num_bytes_in_sizes_table;
+		uint32_t start_offset = _header.in_line ? _num_bytes_in_header : _num_bytes_in_header + _num_bytes_in_sizes_table;
         this->populateFrameOffsets(start_offset);
         
         // calculate frame size in bytes from compression type
